@@ -1,0 +1,28 @@
+# Environment & secrets
+.env
+*.env
+config/.env
+
+# Local storage & databases
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# Temporary files
+*.tmp*
+*.quarantine

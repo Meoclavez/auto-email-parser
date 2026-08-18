@@ -1,0 +1,116 @@
+# ===================================================================
+# Automatic Email Parser & Downloader Configuration
+# 100% On-Premise / Local Server Deployment (Zero Cloud Data Leakage)
+# ===================================================================
+
+# IMAP Mailbox Connection
+imap:
+  server: "${IMAP_SERVER:-imap.example.com}"
+  port: ${IMAP_PORT:-993}
+  username: "${IMAP_USER:-enquiries@example.com}"
+  password: "${IMAP_PASSWORD:-your_secure_password_here}"
+  use_ssl: true
+  mailbox: "${IMAP_MAILBOX:-INBOX}"
+  poll_interval_seconds: 60
+  use_idle: true
+  mark_as_read: true
+  max_emails_per_batch: 50
+  connection_timeout: 30
+  max_retry_backoff: 60
+
+# Email Intake & Filter Rules
+filters:
+  # Allowed sender domains (Leave empty [] to accept from any domain)
+  allowed_sender_domains:
+    # - "@clientcorp.com"
+    # - "@engineering-partner.org"
+  
+  # Blocked / Blacklisted domains or addresses
+  blocked_sender_domains:
+    - "spammer.com"
+    - "marketing-blast.net"
+
+  # Required subject keywords (Case-insensitive)
+  # When match_all_keywords is false, matching ANY keyword passes the filter.
+  required_subject_keywords:
+    - "RFQ"
+    - "Quote"
+    - "Enquiry"
+    - "Inquiry"
+    - "Job"
+    - "Order"
+    - "Drawing"
+    - "Spec"
+
+  # Excluded keywords (e.g. out of office notifications, auto replies)
+  excluded_subject_keywords:
+    - "Automatic reply:"
+    - "Out of Office"
+    - "Undeliverable:"
+    - "Delivery Status Notification"
+
+  # Optional Regex pattern for subject matching (e.g. 'RFQ-[0-9]+')
+  # subject_regex: "^(RFQ|PO|JOB)-[0-9]+"
+
+  # Dedicated intake addresses (To/Cc) - Match only emails sent to these addresses
+  intake_addresses:
+    # - "enquiries@yourcompany.com"
+    # - "rfq@yourcompany.com"
+
+  # Require at least one attachment for enquiry creation
+  require_attachments: false
+  match_all_keywords: false
+
+# Storage & Directory Layout
+storage:
+  base_dir: "storage/jobs"
+  quarantine_dir: "storage/quarantine"
+  database_path: "storage/email_jobs.db"
+  job_id_prefix: "JOB"
+  file_permissions: "0640"
+  dir_permissions: "0750"
+  min_free_disk_mb: 500
+
+# Security, Validation & Limits
+security:
+  max_file_size_mb: 50
+  max_zip_uncompressed_mb: 150
+  max_zip_entries: 100
+  allow_zip_archives: true
+  
+  # Allowed file extensions
+  allowed_extensions:
+    # Documents
+    - ".pdf"
+    - ".doc"
+    - ".docx"
+    - ".xls"
+    - ".xlsx"
+    - ".csv"
+    - ".txt"
+    # Images
+    - ".jpg"
+    - ".jpeg"
+    - ".png"
+    - ".gif"
+    - ".bmp"
+    - ".tif"
+    - ".tiff"
+    # CAD / Engineering 2D & 3D models
+    - ".dxf"
+    - ".dwg"
+    - ".step"
+    - ".stp"
+    - ".iges"
+    - ".igs"
+    - ".stl"
+    - ".sat"
+    - ".x_t"
+    # Archives
+    - ".zip"
+    - ".7z"
+    - ".tar"
+    - ".gz"
+
+# Logging verbosity (DEBUG, INFO, WARNING, ERROR)
+log_level: "INFO"
