@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Command-line interface for the Automatic Email Parser & Downloader and Web Dashboard."""
 
 import os
@@ -102,7 +101,7 @@ def cmd_inspect_jobs(args):
 
 
 def cmd_web(args):
-    """Starts the secure web dashboard server."""
+    """Starts the secure web dashboard server with clean signal shutdown."""
     config = AppConfig.load_from_yaml(args.config)
     setup_logging(args.log_level or config.log_level)
     
@@ -115,12 +114,20 @@ def cmd_web(args):
     print(f"  Default Login: admin / AdminPass123!")
     print("================================================================\n")
 
-    # Run with waitress or native development server
     try:
         from waitress import serve
-        serve(app, host=args.host, port=args.port)
+        serve(app, host=args.host, port=args.port, threads=6)
+    except (KeyboardInterrupt, SystemExit):
+        print("\n[*] Server shutdown signal received. Terminating cleanly...")
     except ImportError:
-        app.run(host=args.host, port=args.port, debug=False)
+        try:
+            app.run(host=args.host, port=args.port, debug=False)
+        except (KeyboardInterrupt, SystemExit):
+            print("\n[*] Server shutdown signal received. Terminating cleanly...")
+    finally:
+        service.stop_daemon()
+        print("[+] Email parser service and database connections closed.")
+        os._exit(0)
 
 
 def cmd_create_user(args):

@@ -3,6 +3,7 @@
 import os
 import time
 import signal
+import sys
 import shutil
 import threading
 import logging
@@ -63,20 +64,18 @@ class EmailParserService:
         self.mailbox_manager = MailboxManager(self.state_db, self.cipher)
         self.imap_client = IMAPReceiver(self.config.imap)
 
-        # Setup signal handlers if in main thread
-        if threading.current_thread() is threading.main_thread():
-            self._setup_signals()
-
     def _setup_signals(self):
+        """Installs signal handlers only for standalone CLI runner."""
         try:
-            signal.signal(signal.SIGINT, self._handle_shutdown_signal)
-            signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
+            def handler(signum, frame):
+                logger.info(f"Received termination signal ({signum}). Initiating graceful shutdown...")
+                self.stop_daemon()
+                sys.exit(0)
+
+            signal.signal(signal.SIGINT, handler)
+            signal.signal(signal.SIGTERM, handler)
         except (ValueError, AttributeError):
             pass
-
-    def _handle_shutdown_signal(self, signum, frame):
-        logger.info(f"Received termination signal ({signum}). Initiating graceful shutdown...")
-        self.stop_daemon()
 
     def pre_flight_checks(self) -> bool:
         """Verifies environment, disk space, and filesystem permissions."""
@@ -213,10 +212,16 @@ class EmailParserService:
             logger.info("Mailbox monitoring resumed.")
 
     def stop_daemon(self):
-        """Gracefully terminates background poller."""
+        """Gracefully terminates background poller and joins thread."""
         with self._lock:
             self._running = False
             self._paused = False
+            worker = self._worker_thread
+
+        if worker and worker.is_alive() and threading.current_thread() != worker:
+            worker.join(timeout=2.0)
+            self._worker_thread = None
+
         logger.info("Mailbox monitoring stopped.")
 
     def get_monitoring_status(self) -> Dict[str, Any]:
@@ -242,7 +247,7 @@ class EmailParserService:
                 except Exception as e:
                     logger.error(f"Error in daemon polling cycle: {e}", exc_info=True)
 
-            interval = max(10, self.config.imap.poll_interval_seconds)
+            interval = max(5, self.config.imap.poll_interval_seconds)
             for _ in range(interval):
                 if not self._running:
                     break
@@ -252,9 +257,10 @@ class EmailParserService:
         """Foreground blocking daemon runner for CLI."""
         if not self.pre_flight_checks():
             return
+        self._setup_signals()
         self.start_background_monitoring()
         try:
             while self._running:
                 time.sleep(1)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             self.stop_daemon()
