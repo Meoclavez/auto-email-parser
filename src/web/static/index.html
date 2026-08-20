@@ -3,99 +3,118 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Email Parser Dashboard - On-Premises Intake</title>
+  <title>Enterprise Email Parser & Downloader</title>
   <link rel="stylesheet" href="/static/css/dashboard.css">
 </head>
 <body>
-  <div class="ambient-glow"></div>
-
-  <!-- Header -->
+  <!-- Header Navigation -->
   <header>
     <div class="brand">
-      <div class="brand-icon">📥</div>
-      <span>Auto Email Parser</span>
+      <div id="brand-logo-slot"></div>
+      <div class="brand-text">
+        <span class="brand-name">Auto Email Parser</span>
+        <span class="brand-tag">On-Premises Intake & Attachment System</span>
+      </div>
     </div>
 
     <div class="nav-controls">
-      <div class="badge-status">
+      <div class="status-badge" id="header-status-badge">
         <span class="pulse-dot"></span>
-        <span>Service Active</span>
+        <span id="header-status-text">Active</span>
       </div>
 
       <button id="sync-now-btn" class="btn btn-primary btn-sm">
-        🔄 Sync Mailbox
+        <span id="icon-sync-slot"></span>
+        <span>Sync Mailboxes</span>
       </button>
 
-      <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-secondary); margin-left:0.5rem;">
-        <span id="user-name" style="font-weight:600; color:#fff;">User</span>
-        <span id="user-role" style="font-size:0.75rem;">(ADMIN)</span>
+      <div style="display:flex; align-items:center; gap:0.45rem; font-size:0.85rem; padding:0.35rem 0.65rem; background:#f1f5f9; border-radius:var(--radius-sm); border:1px solid var(--border-color);">
+        <strong id="user-name" style="color:var(--text-main);">Admin</strong>
+        <span id="user-role-badge" class="badge badge-primary" style="font-size:0.675rem; padding:0.15rem 0.35rem;">ADMIN</span>
       </div>
 
-      <button id="logout-btn" class="btn btn-secondary btn-sm" style="padding:0.4rem 0.75rem;">
-        Logout
+      <button id="logout-btn" class="btn btn-secondary btn-sm" title="Sign Out">
+        <span id="icon-logout-slot"></span>
+        <span>Logout</span>
       </button>
     </div>
   </header>
 
-  <!-- Main Container -->
+  <!-- Main Body -->
   <main>
     <!-- KPI Overview Cards -->
     <div class="kpi-grid">
       <div class="kpi-card">
-        <span class="kpi-title">Total Enquiries Logged</span>
-        <span class="kpi-value" id="stat-total">0</span>
-        <span class="kpi-subtitle">Lifetime intake volume</span>
+        <div class="kpi-icon-wrap" id="kpi-icon-total"></div>
+        <div class="kpi-content">
+          <span class="kpi-title">Total Enquiries</span>
+          <span class="kpi-value" id="stat-total">0</span>
+        </div>
       </div>
+
       <div class="kpi-card">
-        <span class="kpi-title">Successfully Processed</span>
-        <span class="kpi-value" id="stat-processed" style="color:var(--accent-success);">0</span>
-        <span class="kpi-subtitle">Job directories provisioned</span>
+        <div class="kpi-icon-wrap success" id="kpi-icon-processed"></div>
+        <div class="kpi-content">
+          <span class="kpi-title">Processed Jobs</span>
+          <span class="kpi-value" id="stat-processed">0</span>
+        </div>
       </div>
+
       <div class="kpi-card">
-        <span class="kpi-title">Quarantined Threats</span>
-        <span class="kpi-value" id="stat-quarantined" style="color:var(--accent-danger);">0</span>
-        <span class="kpi-subtitle">Suspicious files isolated</span>
+        <div class="kpi-icon-wrap danger" id="kpi-icon-quarantined"></div>
+        <div class="kpi-content">
+          <span class="kpi-title">Quarantined Threats</span>
+          <span class="kpi-value" id="stat-quarantined">0</span>
+        </div>
       </div>
+
       <div class="kpi-card">
-        <span class="kpi-title">Free Storage Space</span>
-        <span class="kpi-value" id="stat-disk">--</span>
-        <span class="kpi-subtitle">Local storage capacity</span>
+        <div class="kpi-icon-wrap" id="kpi-icon-storage"></div>
+        <div class="kpi-content">
+          <span class="kpi-title">Available Storage</span>
+          <span class="kpi-value" id="stat-disk">--</span>
+        </div>
       </div>
     </div>
 
     <!-- Navigation Tabs -->
     <div class="tabs-nav">
-      <button class="tab-btn active" data-tab="jobs">📋 Enquiry Explorer</button>
-      <button class="tab-btn" data-tab="quarantine">☣️ Quarantine Center</button>
-      <button class="tab-btn" data-tab="config">⚙️ Filter & Rules Config</button>
+      <button class="tab-btn active" data-tab="jobs"><span id="tab-icon-jobs"></span> Enquiries Pipeline</button>
+      <button class="tab-btn admin-only" data-tab="mailboxes"><span id="tab-icon-mailboxes"></span> Mailbox Accounts</button>
+      <button class="tab-btn" data-tab="monitoring"><span id="tab-icon-monitoring"></span> Daemon Monitor</button>
+      <button class="tab-btn admin-only" data-tab="config"><span id="tab-icon-config"></span> Filter Rules</button>
+      <button class="tab-btn" data-tab="quarantine"><span id="tab-icon-quarantine"></span> Quarantine</button>
+      <button class="tab-btn admin-only" data-tab="team"><span id="tab-icon-team"></span> Team & Roles</button>
     </div>
 
-    <!-- Tab 1: Enquiry Explorer View -->
+    <!-- Tab 1: Enquiries Pipeline -->
     <div id="tab-jobs-view">
       <div class="toolbar">
         <div class="search-box">
-          <span class="search-icon">🔍</span>
+          <span class="search-icon-pos" id="icon-search-slot"></span>
           <input type="text" id="search-input" class="search-input" placeholder="Search client name, subject, RFQ reference, or Job ID...">
         </div>
 
         <select id="status-filter" class="filter-select">
           <option value="ALL">All Statuses</option>
           <option value="PROCESSED">PROCESSED (Success)</option>
-          <option value="PENDING">PENDING</option>
+          <option value="IN_REVIEW">IN_REVIEW</option>
+          <option value="QUOTED">QUOTED</option>
+          <option value="ARCHIVED">ARCHIVED</option>
           <option value="FAILED">FAILED (Errors)</option>
           <option value="IGNORED">IGNORED (Filtered)</option>
         </select>
       </div>
 
-      <div class="table-container">
+      <div class="table-card">
         <table>
           <thead>
             <tr>
               <th>Job Reference</th>
               <th>Sender</th>
               <th>Subject</th>
-              <th>Status</th>
-              <th>Intake Time</th>
+              <th>Pipeline Status</th>
+              <th>Intake Timestamp</th>
             </tr>
           </thead>
           <tbody id="jobs-table-body">
@@ -107,24 +126,57 @@
       </div>
     </div>
 
-    <!-- Tab 2: Quarantine Center View -->
-    <div id="tab-quarantine-view" style="display:none;">
-      <div style="background:var(--bg-card); border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:1.5rem;">
-        <h3 style="margin-bottom:0.5rem; color:var(--accent-danger);">☣️ Quarantined Attachments</h3>
-        <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1.5rem;">
-          The following files were flagged by the security validator (e.g. disguised binaries, zip traps, or forbidden extensions) and isolated safely.
-        </p>
-        <div id="quarantine-list"></div>
+    <!-- Tab 2: Mailbox Accounts -->
+    <div id="tab-mailboxes-view" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <div>
+          <h3 style="font-size:1.1rem; color:var(--text-main);">Configured Inbound Mailboxes</h3>
+          <p style="font-size:0.85rem; color:var(--text-muted);">Manage dedicated IMAP intake mailboxes with encrypted credential storage.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-add-mailbox">+ Add Mailbox</button>
+      </div>
+      <div id="mailboxes-list"></div>
+    </div>
+
+    <!-- Tab 3: Daemon Monitoring -->
+    <div id="tab-monitoring-view" style="display:none;">
+      <div class="table-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+          <div>
+            <h3 style="font-size:1.1rem; color:var(--text-main);">Email Intake Background Poller</h3>
+            <p style="font-size:0.85rem; color:var(--text-muted);">Dynamic worker daemon monitoring all active nominated mailboxes.</p>
+          </div>
+          <span id="monitor-status-badge" class="badge badge-success">RUNNING</span>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:1rem; margin-bottom:1.5rem; background:#f8fafc; border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:1rem;">
+          <div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Active Accounts</span>
+            <div id="monitor-active-count" style="font-size:1.25rem; font-weight:700; color:var(--text-main);">-</div>
+          </div>
+          <div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Last Intake Cycle</span>
+            <div id="monitor-last-sync" style="font-size:0.95rem; font-weight:600; color:var(--text-main); margin-top:0.25rem;">-</div>
+          </div>
+          <div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Poll Frequency</span>
+            <div id="monitor-interval" style="font-size:1.25rem; font-weight:700; color:var(--text-main);">-</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem;">
+          <button id="btn-start-monitor" class="btn btn-primary btn-sm">Start Service</button>
+          <button id="btn-pause-monitor" class="btn btn-secondary btn-sm">Pause Monitoring</button>
+          <button id="btn-resume-monitor" class="btn btn-secondary btn-sm">Resume Monitoring</button>
+        </div>
       </div>
     </div>
 
-    <!-- Tab 3: Filter & Rules Configuration View -->
+    <!-- Tab 4: Filter Rules Config -->
     <div id="tab-config-view" style="display:none;">
-      <div style="background:var(--bg-card); border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:1.75rem; max-width:800px;">
-        <h3 style="margin-bottom:0.5rem; color:#fff;">⚙️ Inbound Filter Rules</h3>
-        <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1.5rem;">
-          Configure intake rules to filter out spam and prioritize relevant enquiries. Changes take effect on the next intake cycle.
-        </p>
+      <div class="table-card" style="padding:1.5rem; max-width:800px;">
+        <h3 style="font-size:1.1rem; color:var(--text-main); margin-bottom:0.25rem;">Inbound Email Filter Rules</h3>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">Rules applied on intake to automatically classify and filter enquiries.</p>
 
         <div class="form-group">
           <label class="form-label" for="cfg-keywords">Required Subject Keywords (Comma separated)</label>
@@ -132,30 +184,53 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="cfg-domains">Allowed Sender Domains (Leave empty for any domain)</label>
+          <label class="form-label" for="cfg-domains">Allowed Sender Domains (Empty = allow all)</label>
           <input type="text" id="cfg-domains" class="form-input" placeholder="@acme.com, @precision.co.uk">
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="cfg-blocked">Blocked Sender Domains (Comma separated)</label>
-          <input type="text" id="cfg-blocked" class="form-input" placeholder="spammer.com, bot-alert.net">
+          <label class="form-label" for="cfg-blocked">Blocked Domains / Addresses</label>
+          <input type="text" id="cfg-blocked" class="form-input" placeholder="spammer.com, bot-blast.net">
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="cfg-intake">Dedicated Intake Mailbox Addresses (Optional)</label>
-          <input type="text" id="cfg-intake" class="form-input" placeholder="enquiries@yourcompany.com, rfq@yourcompany.com">
+          <label class="form-label" for="cfg-intake">Dedicated Intake Mailbox Addresses</label>
+          <input type="text" id="cfg-intake" class="form-input" placeholder="enquiries@company.com, rfq@company.com">
         </div>
 
-        <button type="button" id="save-filters-btn" class="btn btn-primary" style="margin-top:1rem;">
+        <button type="button" id="save-filters-btn" class="btn btn-primary btn-sm" style="margin-top:0.5rem;">
           Save Filter Rules
         </button>
       </div>
+    </div>
+
+    <!-- Tab 5: Quarantine Center -->
+    <div id="tab-quarantine-view" style="display:none;">
+      <div class="table-card" style="padding:1.5rem;">
+        <h3 style="font-size:1.1rem; color:var(--danger); margin-bottom:0.25rem;">Quarantined Threat Attachments</h3>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem;">
+          Suspicious payloads isolated by security validators (disguised PE binaries, zip traversal traps, or prohibited extensions).
+        </p>
+        <div id="quarantine-list"></div>
+      </div>
+    </div>
+
+    <!-- Tab 6: Team & Users -->
+    <div id="tab-team-view" style="display:none;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <div>
+          <h3 style="font-size:1.1rem; color:var(--text-main);">Team Members & Access Roles</h3>
+          <p style="font-size:0.85rem; color:var(--text-muted);">Manage staff accounts and permissions (Admin, Estimator, Viewer).</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-add-user">+ Invite Team Member</button>
+      </div>
+      <div id="team-users-list"></div>
     </div>
   </main>
 
   <!-- Job Detail Modal -->
   <div id="job-modal" class="modal-overlay">
-    <div class="modal-content">
+    <div class="modal-card">
       <div class="modal-header">
         <h3 class="modal-title" id="modal-job-title">Enquiry Details</h3>
         <button class="close-btn" id="modal-close">&times;</button>
@@ -164,10 +239,101 @@
     </div>
   </div>
 
+  <!-- Add Mailbox Modal -->
+  <div id="mailbox-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width:540px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Configure Inbound Mailbox</h3>
+        <button class="close-btn" id="mailbox-modal-close">&times;</button>
+      </div>
+      <form id="form-add-mailbox" style="padding:1.5rem;">
+        <div class="form-group">
+          <label class="form-label" for="mb-name">Mailbox Name / Purpose</label>
+          <input class="form-input" id="mb-name" required placeholder="Primary RFQ Inbox">
+        </div>
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:0.75rem;">
+          <div class="form-group">
+            <label class="form-label" for="mb-server">IMAP Host</label>
+            <input class="form-input" id="mb-server" required placeholder="imap.yourcompany.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mb-port">Port</label>
+            <input class="form-input" type="number" id="mb-port" value="993" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="mb-user">Username / Email Address</label>
+          <input class="form-input" id="mb-user" required placeholder="rfq@yourcompany.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="mb-pass">Password (Stored with AES-256 Encryption)</label>
+          <input class="form-input" type="password" id="mb-pass" required placeholder="••••••••••••">
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem;">
+          <div class="form-group">
+            <label class="form-label" for="mb-folder">Target Folder</label>
+            <input class="form-input" id="mb-folder" value="INBOX" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mb-interval">Poll Frequency (Seconds)</label>
+            <input class="form-input" type="number" id="mb-interval" value="60" required>
+          </div>
+        </div>
+        <div style="margin-bottom:1.25rem; display:flex; align-items:center; gap:0.5rem;">
+          <input type="checkbox" id="mb-ssl" checked>
+          <label for="mb-ssl" style="font-size:0.85rem; color:var(--text-secondary);">Use Secure SSL/TLS</label>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+          <button type="submit" class="btn btn-primary">Save Mailbox Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div id="user-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width:480px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Add Team Member</h3>
+        <button class="close-btn" id="user-modal-close">&times;</button>
+      </div>
+      <form id="form-add-user" style="padding:1.5rem;">
+        <div class="form-group">
+          <label class="form-label" for="new-fullname">Full Name</label>
+          <input class="form-input" id="new-fullname" placeholder="Jane Smith">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-email">Email Address</label>
+          <input class="form-input" type="email" id="new-email" placeholder="jane@company.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-username">Username</label>
+          <input class="form-input" id="new-username" required placeholder="janesmith">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-password">Password</label>
+          <input class="form-input" type="password" id="new-password" required minlength="6" placeholder="••••••••••••">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-role">Role</label>
+          <select id="new-role" class="form-select">
+            <option value="estimator">Estimator (Review & Quote)</option>
+            <option value="admin">Administrator (Full Control)</option>
+            <option value="viewer">Viewer (Read Only)</option>
+          </select>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+          <button type="submit" class="btn btn-primary">Create User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>
 
   <!-- Scripts -->
+  <script src="/static/js/icons.js"></script>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/app.js"></script>
 </body>

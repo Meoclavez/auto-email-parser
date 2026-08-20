@@ -1,26 +1,26 @@
-"""Robust IMAP client for monitoring mailboxes, handling network drops with backoff, and parsing MIME messages."""
+"""IMAP Email Client with SSL/TLS, auto-reconnect, exponential backoff, and robust MIME parsing."""
 
-import imaplib
 import email
-from email.header import decode_header, make_header
-from email.utils import parsedate_to_datetime
-import time
+import email.header
+import email.utils
+import imaplib
+import logging
 import socket
 import ssl
-import logging
-from typing import List, Optional, Tuple, Generator
-from datetime import datetime, timezone
+import time
+from typing import List, Optional, Tuple, Dict, Any
 
 from src.config import IMAPConfig
 from src.email_receiver.models import EmailMessage, EmailAddress, AttachmentInfo
+from src.security.sanitizer import sanitize_filename
 
 logger = logging.getLogger("EmailParser.IMAP")
 
 
 class IMAPReceiver:
     """
-    Manages resilient IMAP connection with automatic reconnection,
-    exponential backoff, and RFC-compliant email parsing.
+    Handles robust connection, authentication, retrieval, and parsing of emails from an IMAP server.
+    Utilizes permanent IMAP UIDs to guarantee state idempotency.
     """
 
     def __init__(self, config: IMAPConfig):
@@ -29,13 +29,13 @@ class IMAPReceiver:
         self._is_connected = False
 
     def connect(self) -> bool:
-        """Establishes an IMAP SSL connection with retry and exponential backoff."""
-        retry_delay = 1
-        max_attempts = 5
+        """Establishes SSL/TLS connection and authenticates with retry/backoff."""
+        max_retries = 3
+        delay = 2.0
 
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(1, max_retries + 1):
             try:
-                logger.info(f"Connecting to IMAP server {self.config.server}:{self.config.port} (Attempt {attempt}/{max_attempts})...")
+                logger.info(f"Connecting to IMAP {self.config.server}:{self.config.port} (Attempt {attempt}/{max_retries})...")
                 
                 if self.config.use_ssl:
                     ssl_context = ssl.create_default_context()
@@ -43,175 +43,142 @@ class IMAPReceiver:
                         host=self.config.server,
                         port=self.config.port,
                         ssl_context=ssl_context,
-                        timeout=self.config.connection_timeout
+                        timeout=self.config.timeout_seconds
                     )
                 else:
                     self._client = imaplib.IMAP4(
                         host=self.config.server,
                         port=self.config.port,
-                        timeout=self.config.connection_timeout
+                        timeout=self.config.timeout_seconds
                     )
                     if hasattr(self._client, 'starttls'):
                         try:
                             self._client.starttls()
-                        except Exception as tls_err:
-                            logger.warning(f"STARTTLS failed or not supported: {tls_err}")
+                        except Exception as e:
+                            logger.warning(f"STARTTLS failed or not supported: {e}")
 
-                # Login
                 typ, res = self._client.login(self.config.username, self.config.password)
                 if typ != "OK":
                     raise imaplib.IMAP4.error(f"Login failed: {res}")
 
-                # Select mailbox
                 typ, res = self._client.select(self.config.mailbox)
                 if typ != "OK":
-                    raise imaplib.IMAP4.error(f"Failed to select mailbox '{self.config.mailbox}': {res}")
+                    raise imaplib.IMAP4.error(f"Failed to select folder '{self.config.mailbox}': {res}")
 
                 self._is_connected = True
-                logger.info(f"Successfully connected to mailbox '{self.config.mailbox}' as {self.config.username}")
+                logger.info(f"Connected and authenticated to '{self.config.mailbox}' on {self.config.server}.")
                 return True
 
-            except (socket.timeout, socket.error, ssl.SSLError, imaplib.IMAP4.error, OSError) as e:
-                logger.warning(f"Connection error (Attempt {attempt}/{max_attempts}): {e}. Retrying in {retry_delay}s...")
-                self._disconnect_quietly()
-                time.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, self.config.max_retry_backoff)
+            except (socket.timeout, socket.error, ssl.SSLError, imaplib.IMAP4.error) as e:
+                logger.warning(f"Connection attempt {attempt} failed: {e}")
+                self._is_connected = False
+                if attempt < max_retries:
+                    time.sleep(delay)
+                    delay *= 2.0
 
-        logger.error(f"Failed to connect to IMAP server after {max_attempts} attempts.")
-        self._is_connected = False
+        logger.error(f"Failed to connect to IMAP server after {max_retries} attempts.")
         return False
 
     def fetch_unread_emails(self) -> List[EmailMessage]:
-        """
-        Searches and fetches unread (UNSEEN) emails from the mailbox.
-        """
+        """Fetches all UNSEEN emails using permanent IMAP UIDs."""
         if not self._is_connected or not self._client:
             if not self.connect():
                 return []
 
+        messages: List[EmailMessage] = []
         try:
-            typ, data = self._client.search(None, "UNSEEN")
+            typ, data = self._client.uid("search", None, "UNSEEN")
             if typ != "OK" or not data or not data[0]:
+                logger.debug("No unread emails found in mailbox.")
                 return []
 
-            email_uids = data[0].split()
-            if not email_uids:
-                return []
+            uid_list = data[0].split()
+            logger.info(f"Found {len(uid_list)} unread email(s).")
 
-            logger.info(f"Found {len(email_uids)} unread email(s).")
-            
-            # Limit batch size to prevent memory spikes
-            batch = email_uids[:self.config.max_emails_per_batch]
-            parsed_emails: List[EmailMessage] = []
-
-            for uid_bytes in batch:
-                uid_str = uid_bytes.decode('ascii', errors='ignore')
+            for uid_bytes in uid_list:
+                uid_str = uid_bytes.decode('ascii')
                 try:
-                    typ, msg_data = self._client.fetch(uid_bytes, "(RFC822)")
-                    if typ != "OK" or not msg_data:
+                    typ, msg_data = self._client.uid("fetch", uid_bytes, "(RFC822)")
+                    if typ != "OK" or not msg_data or not msg_data[0]:
+                        logger.warning(f"Failed to fetch UID {uid_str}")
                         continue
 
-                    for response_part in msg_data:
-                        if isinstance(response_part, tuple):
-                            raw_email_bytes = response_part[1]
-                            parsed_msg = self.parse_raw_email(raw_email_bytes, uid=uid_str)
-                            parsed_emails.append(parsed_msg)
+                    raw_email_bytes = msg_data[0][1]
+                    email_obj = self.parse_raw_email(raw_email_bytes, uid=uid_str)
+                    messages.append(email_obj)
+                except Exception as e:
+                    logger.error(f"Error parsing email UID {uid_str}: {e}", exc_info=True)
 
-                except Exception as fetch_err:
-                    logger.error(f"Error fetching email UID {uid_str}: {fetch_err}")
+        except (socket.error, imaplib.IMAP4.error) as e:
+            logger.error(f"IMAP error while fetching emails: {e}")
+            self._is_connected = False
 
-            return parsed_emails
-
-        except (socket.error, imaplib.IMAP4.abort, imaplib.IMAP4.error) as e:
-            logger.warning(f"IMAP session error while fetching: {e}. Resetting connection.")
-            self._disconnect_quietly()
-            return []
-
-    def mark_as_read(self, uid_str: str) -> None:
-        """Marks an email UID as read (\\Seen) on the server."""
-        if not self._is_connected or not self._client:
-            return
-        try:
-            self._client.store(uid_str.encode('ascii'), '+FLAGS', '\\Seen')
-        except Exception as e:
-            logger.warning(f"Failed to mark UID {uid_str} as \\Seen: {e}")
+        return messages
 
     def parse_raw_email(self, raw_bytes: bytes, uid: str = "") -> EmailMessage:
-        """
-        Parses raw RFC 822 email bytes into an EmailMessage data model.
-        Handles multi-part decoding, character encodings, and attachment extraction.
-        """
+        """Parses raw RFC822 bytes into a structured EmailMessage with RFC 5322 compliance."""
         msg = email.message_from_bytes(raw_bytes)
 
-        # 1. Decode Headers
+        message_id = self._clean_header(msg.get("Message-ID", "")).strip("<>") or f"gen-{time.time()}-{uid}"
         subject = self._decode_header_str(msg.get("Subject", ""))
-        sender_raw = self._decode_header_str(msg.get("From", ""))
-        to_raw = self._decode_header_str(msg.get("To", ""))
-        cc_raw = self._decode_header_str(msg.get("Cc", ""))
-        message_id = msg.get("Message-ID", "").strip()
-        date_raw = msg.get("Date", "")
+        date_str = msg.get("Date", "")
 
-        sender = EmailAddress.parse(sender_raw)
-        to_recipients = [EmailAddress.parse(addr) for addr in to_raw.split(",") if addr.strip()]
-        cc_recipients = [EmailAddress.parse(addr) for addr in cc_raw.split(",") if addr.strip()]
+        from_raw = msg.get("From", "")
+        sender = self._parse_single_address(from_raw)
 
-        date_dt = None
-        if date_raw:
-            try:
-                date_dt = parsedate_to_datetime(date_raw)
-            except Exception:
-                date_dt = datetime.now(timezone.utc)
+        to_raw = msg.get("To", "")
+        to_recipients = self._parse_address_list(to_raw)
 
-        # 2. Extract Body and Attachments
-        body_plain_parts: List[str] = []
-        body_html_parts: List[str] = []
+        cc_raw = msg.get("Cc", "")
+        cc_recipients = self._parse_address_list(cc_raw)
+
+        body_plain = ""
+        body_html = ""
         attachments: List[AttachmentInfo] = []
 
         if msg.is_multipart():
             for part in msg.walk():
-                content_disposition = str(part.get("Content-Disposition", ""))
-                content_type = part.get_content_type().lower()
+                content_type = part.get_content_type()
+                content_disposition = str(part.get("Content-Disposition", "")).lower()
                 filename = part.get_filename()
 
-                # Check if this part is an attachment
-                is_attachment = ("attachment" in content_disposition.lower()) or (filename is not None)
+                if filename:
+                    filename = self._decode_header_str(filename)
 
-                if is_attachment:
-                    decoded_filename = self._decode_header_str(filename or "unnamed_attachment")
+                is_attachment = ("attachment" in content_disposition) or (filename is not None and "inline" not in content_disposition)
+
+                if is_attachment and filename:
                     payload = part.get_payload(decode=True)
                     if payload:
-                        att_info = AttachmentInfo(
-                            original_filename=decoded_filename,
-                            sanitized_filename="",
-                            content_type=content_type or "application/octet-stream",
+                        attachments.append(AttachmentInfo(
+                            original_filename=filename,
+                            sanitized_filename=sanitize_filename(filename),
+                            content_type=content_type,
                             size_bytes=len(payload),
                             data=payload
-                        )
-                        attachments.append(att_info)
-                elif content_type == "text/plain" and "attachment" not in content_disposition.lower():
-                    decoded_text = self._decode_payload(part)
-                    if decoded_text:
-                        body_plain_parts.append(decoded_text)
-                elif content_type == "text/html" and "attachment" not in content_disposition.lower():
-                    decoded_html = self._decode_payload(part)
-                    if decoded_html:
-                        body_html_parts.append(decoded_html)
+                        ))
+                elif content_type == "text/plain" and not is_attachment:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        charset = part.get_content_charset() or "utf-8"
+                        body_plain += self._decode_payload(payload, charset)
+                elif content_type == "text/html" and not is_attachment:
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        charset = part.get_content_charset() or "utf-8"
+                        body_html += self._decode_payload(payload, charset)
         else:
-            content_type = msg.get_content_type().lower()
-            decoded_text = self._decode_payload(msg)
-            if content_type == "text/html":
-                body_html_parts.append(decoded_text)
-            else:
-                body_plain_parts.append(decoded_text)
+            content_type = msg.get_content_type()
+            payload = msg.get_payload(decode=True)
+            if payload:
+                charset = msg.get_content_charset() or "utf-8"
+                decoded_text = self._decode_payload(payload, charset)
+                if content_type == "text/html":
+                    body_html = decoded_text
+                else:
+                    body_plain = decoded_text
 
-        body_plain = "\n\n".join(body_plain_parts).strip()
-        body_html = "\n\n".join(body_html_parts).strip()
-
-        # Fallback message_id if absent
-        if not message_id:
-            import hashlib
-            hash_input = f"{sender_raw}{date_raw}{subject}".encode('utf-8', errors='ignore')
-            message_id = f"<synth-{hashlib.sha256(hash_input).hexdigest()[:16]}@local>"
+        raw_headers: Dict[str, str] = {k: self._decode_header_str(v) for k, v in msg.items()}
 
         return EmailMessage(
             uid=uid,
@@ -220,52 +187,26 @@ class IMAPReceiver:
             sender=sender,
             to_recipients=to_recipients,
             cc_recipients=cc_recipients,
-            date_str=date_raw,
-            date_dt=date_dt,
+            date_str=date_str,
             body_plain=body_plain,
             body_html=body_html,
             attachments=attachments,
-            raw_headers=dict(msg.items())
+            raw_headers=raw_headers
         )
 
-    def _decode_header_str(self, header_val: str) -> str:
-        """Decodes RFC 2047 encoded email headers."""
-        if not header_val:
-            return ""
+    def mark_as_read(self, uid: str) -> bool:
+        """Marks an email as read using its permanent IMAP UID."""
+        if not self._is_connected or not self._client or not uid:
+            return False
         try:
-            decoded_chunks = decode_header(header_val)
-            header_parts = []
-            for text, charset in decoded_chunks:
-                if isinstance(text, bytes):
-                    encoding = charset or 'utf-8'
-                    try:
-                        header_parts.append(text.decode(encoding, errors='replace'))
-                    except (LookupError, UnicodeDecodeError):
-                        header_parts.append(text.decode('latin-1', errors='replace'))
-                else:
-                    header_parts.append(str(text))
-            return " ".join(header_parts).strip()
-        except Exception:
-            return str(header_val).strip()
+            self._client.uid("store", uid.encode('ascii'), "+FLAGS", "(\\Seen)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to mark email UID {uid} as read: {e}")
+            return False
 
-    def _decode_payload(self, part) -> str:
-        """Extracts and decodes email payload with multi-codec fallback."""
-        payload = part.get_payload(decode=True)
-        if not payload:
-            return ""
-
-        charset = part.get_content_charset() or 'utf-8'
-        for enc in (charset, 'utf-8', 'latin-1', 'windows-1252', 'cp1252', 'iso-8859-1'):
-            try:
-                return payload.decode(enc)
-            except (UnicodeDecodeError, LookupError):
-                continue
-
-        return payload.decode('utf-8', errors='replace')
-
-    def _disconnect_quietly(self):
-        """Cleanly disconnects the IMAP client if open."""
-        self._is_connected = False
+    def close(self):
+        """Cleanly logs out and closes IMAP connection."""
         if self._client:
             try:
                 self._client.close()
@@ -275,8 +216,60 @@ class IMAPReceiver:
                 self._client.logout()
             except Exception:
                 pass
-            self._client = None
+        self._client = None
+        self._is_connected = False
 
-    def close(self):
-        """Public close method."""
-        self._disconnect_quietly()
+    @staticmethod
+    def _decode_header_str(header_val: str) -> str:
+        """Decodes RFC 2047 MIME encoded headers safely."""
+        if not header_val:
+            return ""
+        try:
+            decoded_header = email.header.decode_header(header_val)
+            return str(email.header.make_header(decoded_header))
+        except Exception:
+            return header_val
+
+    @staticmethod
+    def _clean_header(val: str) -> str:
+        if not val:
+            return ""
+        return val.strip().replace("\r", "").replace("\n", "")
+
+    @classmethod
+    def _parse_single_address(cls, raw: str) -> EmailAddress:
+        clean = cls._clean_header(raw)
+        parsed = email.utils.parseaddr(clean)
+        display_name = cls._decode_header_str(parsed[0])
+        email_addr = parsed[1].lower().strip()
+        domain = email_addr.split("@")[-1] if "@" in email_addr else ""
+        return EmailAddress(raw=clean, email=email_addr, domain=domain, name=display_name)
+
+    @classmethod
+    def _parse_address_list(cls, raw: str) -> List[EmailAddress]:
+        if not raw:
+            return []
+        addresses: List[EmailAddress] = []
+        parsed_list = email.utils.getaddresses([raw])
+        for name, addr in parsed_list:
+            clean_name = cls._decode_header_str(name)
+            clean_addr = addr.lower().strip()
+            if clean_addr:
+                domain = clean_addr.split("@")[-1] if "@" in clean_addr else ""
+                addresses.append(EmailAddress(
+                    raw=f"{clean_name} <{clean_addr}>" if clean_name else clean_addr,
+                    email=clean_addr,
+                    domain=domain,
+                    name=clean_name
+                ))
+        return addresses
+
+    @staticmethod
+    def _decode_payload(payload: bytes, charset: str) -> str:
+        encodings_to_try = [charset, "utf-8", "latin1", "windows-1252"]
+        for enc in encodings_to_try:
+            try:
+                return payload.decode(enc)
+            except (UnicodeDecodeError, LookupError):
+                continue
+        return payload.decode("utf-8", errors="replace")

@@ -1,168 +1,132 @@
-"""Security utilities for filename sanitization, path traversal mitigation, and identifier extraction."""
+"""Filename and identifier sanitization utility against path traversal, RLO spoofing, and injection attacks."""
 
-import os
 import re
 import unicodedata
-from typing import Optional, List
-from src.email_receiver.models import EmailAddress
+from typing import Optional, Union, Any
 
-# Reserved filenames on Windows/DOS systems
-RESERVED_DEVICE_NAMES = {
+WINDOWS_RESERVED_NAMES = {
     "CON", "PRN", "AUX", "NUL",
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
 }
 
-# Dangerous characters in filenames across POSIX and Windows filesystems
-DANGEROUS_CHARS_REGEX = re.compile(r'[\0/\\:\*\?"<>\|;\$&`\'\n\r\t]')
+COMMON_EMAIL_PROVIDERS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "hotmail.com",
+    "outlook.com", "live.com", "icloud.com", "protonmail.com", "aol.com", "mail.com"
+}
 
 
-def sanitize_filename(
-    raw_name: str,
-    max_length: int = 150,
-    fallback: str = "attachment"
-) -> str:
-    """
-    Sanitizes a filename to prevent Path Traversal, Null Byte Injection,
-    and special shell character exploits.
-    """
-    if not raw_name or not isinstance(raw_name, str):
-        return f"{fallback}.dat"
-
-    # Step 1: Strip leading/trailing whitespaces and null bytes
-    cleaned = raw_name.replace('\0', '').strip()
-    if not cleaned:
-        return f"{fallback}.dat"
-
-    # Step 2: Remove any path component (POSIX & Windows)
-    cleaned = os.path.basename(cleaned)
-    if '\\' in cleaned:
-        cleaned = cleaned.split('\\')[-1]
-    if '/' in cleaned:
-        cleaned = cleaned.split('/')[-1]
-
-    # Step 3: Normalize Unicode characters (NFKD form)
-    cleaned = unicodedata.normalize('NFKD', cleaned)
-
-    # Step 4: Handle pure extension input like '.pdf' or '.dxf'
-    if cleaned.startswith('.') and cleaned.count('.') == 1:
-        ext_part = cleaned
-        name_part = fallback
-    else:
-        name_part, ext_part = os.path.splitext(cleaned)
-    
-    # Step 5: Replace dangerous characters with underscores
-    name_part = DANGEROUS_CHARS_REGEX.sub('_', name_part)
-    ext_part = DANGEROUS_CHARS_REGEX.sub('_', ext_part)
-
-    # Step 6: Collapse multiple underscores or spaces
-    name_part = re.sub(r'[\s_]+', '_', name_part).strip(' ._-')
-    ext_part = re.sub(r'[\s_]+', '', ext_part).strip(' ')
-
-    # Step 7: Handle empty base name or empty extension
-    if not name_part:
-        name_part = fallback
-
-    if not ext_part:
-        ext_part = ".dat" if name_part == fallback else ""
-
-    if name_part.upper() in RESERVED_DEVICE_NAMES:
-        name_part = f"{name_part}_file"
-
-    # Step 8: Enforce max length while preserving extension
-    max_name_len = max(10, max_length - len(ext_part))
-    if len(name_part) > max_name_len:
-        name_part = name_part[:max_name_len].rstrip(' ._-')
-
-    sanitized = f"{name_part}{ext_part}"
-    return sanitized if sanitized else f"{fallback}.dat"
-
-
-def sanitize_identifier(
-    name: str,
-    max_length: int = 50,
-    fallback: str = "client"
-) -> str:
-    """
-    Converts a client name or job text into a clean alphanumeric slug
-    suitable for folder and file names.
-    """
-    if not name or not isinstance(name, str):
+def sanitize_filename(filename: str, fallback: str = "attachment.dat", max_length: int = 150) -> str:
+    """Sanitizes attachment filename against path traversal, RLO spoofing, and reserved device names."""
+    if not filename or not str(filename).strip():
         return fallback
+
+    clean = str(filename).strip()
+
+    # If only whitespace + extension (e.g. "   .pdf")
+    if clean.startswith(".") and len(clean.split(".")) == 2:
+        return f"attachment{clean}"
+
+    # Extract basename stripping path traversal in POSIX and Windows formats
+    clean = clean.replace("\\", "/")
+    clean = clean.split("/")[-1]
 
     # Normalize unicode
-    cleaned = unicodedata.normalize('NFKD', name)
-    cleaned = cleaned.encode('ascii', 'ignore').decode('ascii')
-    
-    # Replace non-alphanumeric with hyphens
-    cleaned = re.sub(r'[^a-zA-Z0-9_-]+', '-', cleaned).strip('-_')
-    cleaned = re.sub(r'-+', '-', cleaned).lower()
+    clean = unicodedata.normalize("NFKC", clean)
 
-    if not cleaned:
+    # Replace bad characters with underscore, preserve dots and hashes
+    clean = re.sub(r'[:\*\?<>\|]', '_', clean)
+    clean = re.sub(r'[\x00-\x1f\x7f\u200e\u200f\u202a-\u202e]', '', clean)
+    clean = re.sub(r'_+\.', '.', clean)
+    clean = clean.strip(". ")
+
+    if not clean:
         return fallback
 
-    if cleaned.upper() in RESERVED_DEVICE_NAMES:
-        cleaned = f"{cleaned}-corp"
+    # Check for reserved DOS device names
+    base_name = clean.split(".")[0].upper()
+    if base_name in WINDOWS_RESERVED_NAMES:
+        parts = clean.split(".", 1)
+        ext = f".{parts[1]}" if len(parts) > 1 else ""
+        clean = f"{parts[0]}_file{ext}"
 
-    return cleaned[:max_length].rstrip('-_')
+    if len(clean) > max_length:
+        parts = clean.rsplit(".", 1)
+        if len(parts) == 2:
+            ext = "." + parts[1][:10]
+            clean = parts[0][:max_length - len(ext)] + ext
+        else:
+            clean = clean[:max_length]
 
-
-def extract_client_identifier(sender: EmailAddress, subject: str = "") -> str:
-    """
-    Extracts a meaningful client identifier from the sender information.
-    Prioritizes domain name (excluding common public email providers like gmail/yahoo/outlook)
-    or sender name slug.
-    """
-    public_providers = {
-        "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
-        "proton.me", "protonmail.com", "aol.com", "mail.com", "zoho.com"
-    }
-
-    if sender.domain and sender.domain not in public_providers:
-        # e.g., acme-engineering.co.uk -> acme-engineering
-        domain_parts = sender.domain.split(".")
-        if len(domain_parts) >= 2:
-            return sanitize_identifier(domain_parts[0])
-
-    if sender.name:
-        return sanitize_identifier(sender.name)
-
-    if sender.email:
-        local_part = sender.email.split("@")[0]
-        return sanitize_identifier(local_part)
-
-    return "unknown-client"
+    return clean or fallback
 
 
-def extract_job_reference(
-    subject: str,
-    patterns: Optional[List[str]] = None
-) -> Optional[str]:
-    """
-    Extracts explicit RFQ/PO/Job reference numbers from the subject line.
-    Example: 'RFQ-99238', 'Quote #1042', 'PO: 88412'
-    """
+def sanitize_identifier(identifier: str, max_length: int = 50) -> str:
+    """Sanitizes customer names or enquiry references for folder naming."""
+    if not identifier or not str(identifier).strip():
+        return "client"
+
+    clean = unicodedata.normalize("NFKD", str(identifier)).encode("ascii", "ignore").decode("ascii")
+    clean = re.sub(r"[^\w\s-]", "", clean).strip().lower()
+    clean = re.sub(r"[-\s]+", "-", clean)
+    clean = clean.strip("-")
+
+    return clean[:max_length] if clean else "client"
+
+
+def extract_client_identifier(sender: Union[str, Any], display_name: Optional[str] = None) -> str:
+    """Extracts a clean client identifier slug from an EmailAddress object or email string."""
+    raw_addr = ""
+    name = ""
+    domain = ""
+
+    if hasattr(sender, "email"):
+        raw_addr = sender.email or ""
+        name = getattr(sender, "name", "") or getattr(sender, "display_name", "")
+        domain = getattr(sender, "domain", "")
+    elif isinstance(sender, str):
+        raw_addr = sender
+        name = display_name or ""
+
+    if not domain and "@" in raw_addr:
+        domain = raw_addr.split("@")[-1].lower()
+
+    if domain and domain not in COMMON_EMAIL_PROVIDERS:
+        parts = domain.split(".")
+        if len(parts) >= 2:
+            return sanitize_identifier(parts[0], max_length=30)
+
+    if name:
+        clean_name = sanitize_identifier(name, max_length=30)
+        if clean_name and clean_name != "client":
+            return clean_name
+
+    if raw_addr and "@" in raw_addr:
+        user_part = raw_addr.split("@")[0]
+        return sanitize_identifier(user_part, max_length=30)
+
+    return "client"
+
+
+def extract_job_reference(subject: str) -> Optional[str]:
+    """Attempts to extract job/quote reference containing alphanumeric ID or numbers from subject."""
     if not subject:
         return None
+    
+    # Priority 1: Direct hashtag or bracketed references (e.g. #JOB994, [REF-123])
+    m = re.search(r"#\s*([a-z0-9-_]{3,20})", subject, re.IGNORECASE)
+    if m:
+        return sanitize_identifier(m.group(1), max_length=20)
 
-    # First check explicit hashtags like #JOB994 or #1042
-    hash_match = re.search(r'#([A-Za-z0-9_\-]{3,20})', subject)
-    if hash_match:
-        return sanitize_identifier(hash_match.group(1).strip(), max_length=30)
+    m = re.search(r"\[([a-z0-9-_]{3,20})\]", subject, re.IGNORECASE)
+    if m:
+        return sanitize_identifier(m.group(1), max_length=20)
 
-    default_patterns = [
-        # Keyword followed by reference code e.g. RFQ-88219, PO_1204
-        r'(?:RFQ|ENQ|JOB|QUOTE|PO|PROJECT|ORDER)[\s#:_\-\/]+([A-Za-z0-9_\-]*[0-9]+[A-Za-z0-9_\-]*)',
-        r'(?:RFQ|ENQ|JOB|QUOTE|PO)[\s#:_\-\/]+([A-Za-z0-9_\-]+)',
-    ]
-    regex_list = patterns or default_patterns
-
-    for pat in regex_list:
-        match = re.search(pat, subject, re.IGNORECASE)
-        if match:
-            raw_ref = match.group(1).strip()
-            cleaned_ref = re.sub(r'^(?:RFQ|ENQ|JOB|QUOTE|PO|PROJECT|ORDER)[\s#:_\-\/]*', '', raw_ref, flags=re.I).strip('-_ ')
-            final_ref = cleaned_ref if cleaned_ref else raw_ref
-            return sanitize_identifier(final_ref, max_length=30)
+    # Priority 2: Keyword prefix followed by number/reference (e.g. Quote RFQ-88219)
+    m = re.search(r"(?:rfq|quote|job|order|po|ref|enquiry)[\s:#_-]+(?:rfq|quote|job|order|po|ref|enquiry)?[\s:#_-]*([a-z0-9-_]*\d+[a-z0-9-_]*)", subject, re.IGNORECASE)
+    if m:
+        candidate = m.group(1).lower()
+        if candidate not in ("quote", "rfq", "job", "order", "enquiry", "for", "the"):
+            return sanitize_identifier(candidate, max_length=20)
 
     return None

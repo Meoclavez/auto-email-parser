@@ -1,126 +1,71 @@
-# Automatic Email Parser, Downloader & Secure Web Dashboard
+# Enterprise Automatic Email Parser, Downloader & Management Suite
 
-A self-hosted, 100% on-premises automatic email monitoring, filtering, attachment downloader, Markdown archiver, and secure Web Dashboard. Designed for air-gapped or on-premises servers with zero external cloud dependencies.
-
----
-
-## Key Features
-
-1. **100% Local & Privacy First**: No external APIs, no third-party cloud data transmission, and zero telemetry.
-2. **Email Monitoring & Polling**:
-   - Secure IMAP over TLS/SSL (Port 993) or STARTTLS.
-   - Exponential backoff retry on network drops, timeouts, and server disconnects.
-   - Configurable polling intervals or IMAP IDLE push.
-3. **Multi-Criteria Filter Engine**:
-   - Sender domain whitelist and blacklist filtering.
-   - Subject keyword detection (literal and regex match).
-   - Dedicated intake address filtering (`To` / `Cc`).
-   - Exclusion of out-of-office and automated bounce-backs.
-4. **Enquiry & Job Management**:
-   - Automatic sequential Job ID generation (`JOB-YYYYMMDD-XXXX`).
-   - Clean client identifier slug extraction (e.g. `JOB-20260819-0001_acme-aerospace_4089`).
-   - Isolated folder hierarchy per enquiry with `email_content.md` and `manifest.json`.
-5. **Hardened Security & Quarantine**:
-   - Supports documents (PDF, DOCX, XLSX, TXT), images (JPG, PNG, GIF, TIFF), CAD models (DXF, DWG, STEP, IGES), and safe ZIP archives.
-   - Path traversal and null-byte injection mitigation.
-   - File extension whitelisting and magic byte header signature inspection (blocks disguised executables like `.exe` disguised as `.pdf`).
-   - Zip bomb defense with uncompressed size and entry count limits.
-   - Quarantining of dangerous attachments without dropping the customer enquiry.
-   - Strict file permissions (`0640` for files, `0750` for folders).
-6. **Secure Web Dashboard (On-Premises)**:
-   - **Modern Dark/Glassmorphic SPA**: 100% self-contained HTML/CSS/JS with zero external CDN dependencies.
-   - **Local Authentication**: Argon2id password hashing, session tokens, and IP brute-force rate-limiting.
-   - **Enquiry Explorer**: Real-time search, status filtering, and rendered Markdown viewer.
-   - **Safe File Serving**: Enforces `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and strict `Content-Security-Policy`.
-   - **Quarantine Center**: Review and purge flagged security threats.
-   - **Live Updates**: Server-Sent Events (SSE) stream for real-time dashboard notifications.
+A self-hosted, 100% on-premises automatic email monitoring, multi-mailbox encrypted management, attachment downloader, Markdown archiver, live daemon controller, and professional light-themed Web Dashboard.
 
 ---
 
-## Directory Structure
+## 🌟 Key Features & Services
 
-```
-storage/
-└── jobs/
-    └── JOB-20260819-0001_acme-aerospace_4089/
-        ├── email_content.md       # Metadata, attachments table, and parsed body
-        ├── manifest.json          # Audit log with SHA-256 hashes and timestamps
-        └── attachments/
-            ├── JOB-20260819-0001_01_bracket_spec_revB.pdf
-            └── JOB-20260819-0001_02_bracket_profile.dxf
-```
+1. **Multi-Mailbox Management & Credential Encryption**:
+   - Add, edit, and monitor multiple dedicated IMAP email accounts concurrently (e.g. `rfq@company.com`, `sales@company.com`).
+   - Passwords encrypted at rest using **AES-128/Fernet** authenticated symmetric encryption with master key protection (`config/master.key`).
+   - One-click **"Test Connection"** diagnostic with instantaneous latency, SSL handshake, and unread count checks.
+   - Individual Active/Inactive toggles per mailbox account.
+
+2. **Live Monitoring Daemon Controller**:
+   - Dynamic **Start / Pause / Resume / Immediate Sync** controls directly from the web dashboard.
+   - Live health indicators (Running, Paused, Syncing, Idle) and next poll countdown.
+
+3. **Secure Company & User Registration / Team RBAC**:
+   - Company onboarding and staff registration portal (`/register`).
+   - Role-Based Access Control (**Admin**, **Estimator**, **Viewer**) with account deactivation and role assignment.
+   - State-of-the-art **Argon2id** password hashing and IP brute-force rate-limiting.
+
+4. **Estimator Pipeline Workflow & Notes**:
+   - Track enquiries through a structured pipeline: `NEW` → `IN_REVIEW` → `QUOTED` → `ARCHIVED`.
+   - Attach internal estimation notes and pricing remarks to each enquiry.
+   - Manual `.eml` email or drawing archive drag-and-drop upload.
+
+5. **Hardened Attachment Handling & Quarantine**:
+   - Detects and downloads documents (PDF, DOCX, XLSX, TXT), images (JPG, PNG, GIF, TIFF), CAD models (DXF, DWG, STEP, IGES), and safe ZIP archives.
+   - Strict filename sanitization and path traversal defense.
+   - Magic byte header inspection (blocks disguised `.exe` / `.elf` binaries).
+   - Safe zip bomb limits and non-destructive quarantine isolation (`storage/quarantine/`).
+
+6. **Professional Light/White Enterprise UI**:
+   - Crisp white/slate aesthetic (`#ffffff` / `#f8fafc`) with subtle borders and clean typography.
+   - High-resolution **vector SVG icons** throughout (Inbox, Mail, Shield, Check, Clock, Server, Play, Pause, Key, Users, Settings) — **strictly zero emojis**.
 
 ---
 
-## Installation & Quickstart
+## 🚀 Quickstart & Usage
 
-### 1. Requirements
-- Python 3.10+
-- Dependencies in `requirements.txt` (`pip install -r requirements.txt`)
-
-### 2. Configuration
-Copy the template configuration files:
+### 1. Installation
 ```bash
-cp config/config.example.yaml config/config.yaml
-cp config/.env.example .env
+pip install -r requirements.txt
 ```
 
----
-
-## CLI Commands
-
-### 1. Web Dashboard
+### 2. Start the Web Dashboard
 ```bash
-# Start the web dashboard (default: http://127.0.0.1:8080)
+# Start the dashboard (Default: http://127.0.0.1:8080)
 # Default login: admin / AdminPass123!
 python3 main.py web --port 8080
-
-# Create a new user account
-python3 main.py create-user --username john_doe --password MySecretPassword123! --role estimator
 ```
 
-### 2. Email Intake & Diagnostics
+### 3. Create Additional Users
 ```bash
-# Test IMAP connection and check unread count
-python3 main.py test-connection
-
-# Process unread emails in a single pass (cron mode)
-python3 main.py process-once
-
-# Run continuous background email monitoring daemon
-python3 main.py run
-
-# Check intake metrics and counts
-python3 main.py stats
-
-# List recent processed jobs
-python3 main.py inspect-jobs --limit 20
+python3 main.py create-user --username estimator_1 --password MySecretPass123! --role estimator
 ```
 
----
-
-## Automated Tests
-
-Run the full 44 unit and integration test suite:
+### 4. Run Automated Test Suite
 ```bash
 python3 -m unittest discover -s tests -v
+# 51 tests (OK)
 ```
 
 ---
 
-## Production Nginx & Systemd Deployment
+## 🔒 Production Deployment
 
-### 1. Nginx Reverse Proxy
-Copy [`deploy/nginx.conf`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/nginx.conf) to `/etc/nginx/sites-available/email-parser.conf`, update your domain/certificates, and reload Nginx:
-```bash
-sudo ln -s /etc/nginx/sites-available/email-parser.conf /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-```
-
-### 2. Systemd Web Service
-Copy [`deploy/email-parser-web.service`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/email-parser-web.service) to `/etc/systemd/system/email-parser-web.service`:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now email-parser-web.service
-sudo systemctl status email-parser-web.service
-```
+- Hardened **Nginx Reverse Proxy** template with TLS 1.3, HSTS, and CSP: [`deploy/nginx.conf`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/nginx.conf)
+- **Systemd Web Service** unit file: [`deploy/email-parser-web.service`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/email-parser-web.service)
