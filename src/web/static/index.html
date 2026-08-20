@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Parser Dashboard - On-Premises Intake</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+  <div class="ambient-glow"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">📥</div>
+      <span>Auto Email Parser</span>
+    </div>
+
+    <div class="nav-controls">
+      <div class="badge-status">
+        <span class="pulse-dot"></span>
+        <span>Service Active</span>
+      </div>
+
+      <button id="sync-now-btn" class="btn btn-primary btn-sm">
+        🔄 Sync Mailbox
+      </button>
+
+      <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-secondary); margin-left:0.5rem;">
+        <span id="user-name" style="font-weight:600; color:#fff;">User</span>
+        <span id="user-role" style="font-size:0.75rem;">(ADMIN)</span>
+      </div>
+
+      <button id="logout-btn" class="btn btn-secondary btn-sm" style="padding:0.4rem 0.75rem;">
+        Logout
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main>
+    <!-- KPI Overview Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-title">Total Enquiries Logged</span>
+        <span class="kpi-value" id="stat-total">0</span>
+        <span class="kpi-subtitle">Lifetime intake volume</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">Successfully Processed</span>
+        <span class="kpi-value" id="stat-processed" style="color:var(--accent-success);">0</span>
+        <span class="kpi-subtitle">Job directories provisioned</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">Quarantined Threats</span>
+        <span class="kpi-value" id="stat-quarantined" style="color:var(--accent-danger);">0</span>
+        <span class="kpi-subtitle">Suspicious files isolated</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-title">Free Storage Space</span>
+        <span class="kpi-value" id="stat-disk">--</span>
+        <span class="kpi-subtitle">Local storage capacity</span>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" data-tab="jobs">📋 Enquiry Explorer</button>
+      <button class="tab-btn" data-tab="quarantine">☣️ Quarantine Center</button>
+      <button class="tab-btn" data-tab="config">⚙️ Filter & Rules Config</button>
+    </div>
+
+    <!-- Tab 1: Enquiry Explorer View -->
+    <div id="tab-jobs-view">
+      <div class="toolbar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" class="search-input" placeholder="Search client name, subject, RFQ reference, or Job ID...">
+        </div>
+
+        <select id="status-filter" class="filter-select">
+          <option value="ALL">All Statuses</option>
+          <option value="PROCESSED">PROCESSED (Success)</option>
+          <option value="PENDING">PENDING</option>
+          <option value="FAILED">FAILED (Errors)</option>
+          <option value="IGNORED">IGNORED (Filtered)</option>
+        </select>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Job Reference</th>
+              <th>Sender</th>
+              <th>Subject</th>
+              <th>Status</th>
+              <th>Intake Time</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-table-body">
+            <tr>
+              <td colspan="5" style="text-align:center; color:var(--text-muted); padding:2rem;">Loading enquiries...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 2: Quarantine Center View -->
+    <div id="tab-quarantine-view" style="display:none;">
+      <div style="background:var(--bg-card); border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:1.5rem;">
+        <h3 style="margin-bottom:0.5rem; color:var(--accent-danger);">☣️ Quarantined Attachments</h3>
+        <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1.5rem;">
+          The following files were flagged by the security validator (e.g. disguised binaries, zip traps, or forbidden extensions) and isolated safely.
+        </p>
+        <div id="quarantine-list"></div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Filter & Rules Configuration View -->
+    <div id="tab-config-view" style="display:none;">
+      <div style="background:var(--bg-card); border:1px solid var(--border-glass); border-radius:var(--radius-md); padding:1.75rem; max-width:800px;">
+        <h3 style="margin-bottom:0.5rem; color:#fff;">⚙️ Inbound Filter Rules</h3>
+        <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1.5rem;">
+          Configure intake rules to filter out spam and prioritize relevant enquiries. Changes take effect on the next intake cycle.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="cfg-keywords">Required Subject Keywords (Comma separated)</label>
+          <input type="text" id="cfg-keywords" class="form-input" placeholder="RFQ, Quote, Enquiry, Job, Order, Drawing">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cfg-domains">Allowed Sender Domains (Leave empty for any domain)</label>
+          <input type="text" id="cfg-domains" class="form-input" placeholder="@acme.com, @precision.co.uk">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cfg-blocked">Blocked Sender Domains (Comma separated)</label>
+          <input type="text" id="cfg-blocked" class="form-input" placeholder="spammer.com, bot-alert.net">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="cfg-intake">Dedicated Intake Mailbox Addresses (Optional)</label>
+          <input type="text" id="cfg-intake" class="form-input" placeholder="enquiries@yourcompany.com, rfq@yourcompany.com">
+        </div>
+
+        <button type="button" id="save-filters-btn" class="btn btn-primary" style="margin-top:1rem;">
+          Save Filter Rules
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Job Detail Modal -->
+  <div id="job-modal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-job-title">Enquiry Details</h3>
+        <button class="close-btn" id="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-job-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

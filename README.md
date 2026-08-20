@@ -1,6 +1,6 @@
-# Automatic Email Parser & Downloader (Phase 1)
+# Automatic Email Parser, Downloader & Secure Web Dashboard
 
-A self-hosted, on-premises automatic email monitoring, filtering, attachment downloader, and Markdown archiver. Designed for privacy and zero cloud dependencies — all email contents and attachments are processed and stored strictly on the local server.
+A self-hosted, 100% on-premises automatic email monitoring, filtering, attachment downloader, Markdown archiver, and secure Web Dashboard. Designed for air-gapped or on-premises servers with zero external cloud dependencies.
 
 ---
 
@@ -19,22 +19,21 @@ A self-hosted, on-premises automatic email monitoring, filtering, attachment dow
 4. **Enquiry & Job Management**:
    - Automatic sequential Job ID generation (`JOB-YYYYMMDD-XXXX`).
    - Clean client identifier slug extraction (e.g. `JOB-20260819-0001_acme-aerospace_4089`).
-   - Isolated folder hierarchy per enquiry.
-5. **Secure File Handling & Quarantine**:
+   - Isolated folder hierarchy per enquiry with `email_content.md` and `manifest.json`.
+5. **Hardened Security & Quarantine**:
    - Supports documents (PDF, DOCX, XLSX, TXT), images (JPG, PNG, GIF, TIFF), CAD models (DXF, DWG, STEP, IGES), and safe ZIP archives.
    - Path traversal and null-byte injection mitigation.
    - File extension whitelisting and magic byte header signature inspection (blocks disguised executables like `.exe` disguised as `.pdf`).
    - Zip bomb defense with uncompressed size and entry count limits.
    - Quarantining of dangerous attachments without dropping the customer enquiry.
    - Strict file permissions (`0640` for files, `0750` for folders).
-6. **Markdown Archiving**:
-   - Automatic extraction and conversion of HTML/plaintext email bodies to clean GitHub Flavored Markdown (`email_content.md`).
-   - Structured metadata frontmatter/card (From, To, Date, Subject, Message-ID).
-   - Attachments table with links, file sizes, and SHA-256 checksums.
-   - Warning callouts for quarantined attachments.
-7. **Idempotency & State Tracking**:
-   - Embedded SQLite database in WAL mode (`email_jobs.db`).
-   - Prevents duplicate downloads and duplicate job folders.
+6. **Secure Web Dashboard (On-Premises)**:
+   - **Modern Dark/Glassmorphic SPA**: 100% self-contained HTML/CSS/JS with zero external CDN dependencies.
+   - **Local Authentication**: Argon2id password hashing, session tokens, and IP brute-force rate-limiting.
+   - **Enquiry Explorer**: Real-time search, status filtering, and rendered Markdown viewer.
+   - **Safe File Serving**: Enforces `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, and strict `Content-Security-Policy`.
+   - **Quarantine Center**: Review and purge flagged security threats.
+   - **Live Updates**: Server-Sent Events (SSE) stream for real-time dashboard notifications.
 
 ---
 
@@ -53,14 +52,11 @@ storage/
 
 ---
 
-## Installation & Setup
+## Installation & Quickstart
 
 ### 1. Requirements
 - Python 3.10+
-- Dependencies listed in `requirements.txt`:
-  ```bash
-  pip install -r requirements.txt
-  ```
+- Dependencies in `requirements.txt` (`pip install -r requirements.txt`)
 
 ### 2. Configuration
 Copy the template configuration files:
@@ -69,38 +65,29 @@ cp config/config.example.yaml config/config.yaml
 cp config/.env.example .env
 ```
 
-Edit `config/config.yaml` or `.env` with your IMAP credentials and filter rules:
-```yaml
-imap:
-  server: "imap.yourmailserver.com"
-  port: 993
-  username: "enquiries@yourcompany.com"
-  password: "your_secure_password"
-  use_ssl: true
-  mailbox: "INBOX"
-  poll_interval_seconds: 60
-
-filters:
-  required_subject_keywords:
-    - "RFQ"
-    - "Quote"
-    - "Enquiry"
-    - "Job"
-    - "Order"
-```
-
 ---
 
 ## CLI Commands
 
+### 1. Web Dashboard
+```bash
+# Start the web dashboard (default: http://127.0.0.1:8080)
+# Default login: admin / AdminPass123!
+python3 main.py web --port 8080
+
+# Create a new user account
+python3 main.py create-user --username john_doe --password MySecretPassword123! --role estimator
+```
+
+### 2. Email Intake & Diagnostics
 ```bash
 # Test IMAP connection and check unread count
 python3 main.py test-connection
 
-# Process unread emails in a single pass and exit (ideal for cron)
+# Process unread emails in a single pass (cron mode)
 python3 main.py process-once
 
-# Run continuous background daemon
+# Run continuous background email monitoring daemon
 python3 main.py run
 
 # Check intake metrics and counts
@@ -112,48 +99,28 @@ python3 main.py inspect-jobs --limit 20
 
 ---
 
-## Running the Demo Simulation
+## Automated Tests
 
-You can test the entire pipeline locally without an external mail server:
-```bash
-python3 scripts/demo_simulate_intake.py
-```
-
----
-
-## Running Automated Tests
-
+Run the full 44 unit and integration test suite:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
 ---
 
-## Running as a Linux Systemd Service
+## Production Nginx & Systemd Deployment
 
-Create `/etc/systemd/system/email-parser.service`:
-
-```ini
-[Unit]
-Description=Automatic Email Parser & Downloader Daemon
-After=network.target
-
-[Service]
-Type=simple
-User=appuser
-WorkingDirectory=/home/appuser/auto-email-parser
-ExecStart=/usr/bin/python3 /home/appuser/auto-email-parser/main.py run --config /home/appuser/auto-email-parser/config/config.yaml
-Restart=on-failure
-RestartSec=10
-EnvironmentFile=/home/appuser/auto-email-parser/.env
-
-[Install]
-WantedBy=multi-user.target
+### 1. Nginx Reverse Proxy
+Copy [`deploy/nginx.conf`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/nginx.conf) to `/etc/nginx/sites-available/email-parser.conf`, update your domain/certificates, and reload Nginx:
+```bash
+sudo ln -s /etc/nginx/sites-available/email-parser.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Enable and start the service:
+### 2. Systemd Web Service
+Copy [`deploy/email-parser-web.service`](file:///home/meoclavezz/Projects-1/auto-email-parser/deploy/email-parser-web.service) to `/etc/systemd/system/email-parser-web.service`:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now email-parser.service
-sudo systemctl status email-parser.service
+sudo systemctl enable --now email-parser-web.service
+sudo systemctl status email-parser-web.service
 ```

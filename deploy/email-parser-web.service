@@ -1,0 +1,22 @@
+[Unit]
+Description=Automatic Email Parser Web Dashboard Service
+After=network.target
+
+[Service]
+Type=simple
+User=appuser
+Group=appuser
+WorkingDirectory=/home/appuser/auto-email-parser
+ExecStart=/usr/bin/python3 /home/appuser/auto-email-parser/main.py web --host 127.0.0.1 --port 8080 --config /home/appuser/auto-email-parser/config/config.yaml
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/home/appuser/auto-email-parser/.env
+
+# Security Sandbox Restrictions
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

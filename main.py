@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Command-line interface for the Automatic Email Parser & Downloader."""
+"""Command-line interface for the Automatic Email Parser & Downloader and Web Dashboard."""
 
 import os
 import sys
@@ -8,6 +8,8 @@ import logging
 from src.config import AppConfig
 from src.service import EmailParserService
 from src.storage.state_db import StateDatabase
+from src.web.app import create_app
+from src.web.auth import PasswordManager
 
 
 def setup_logging(log_level: str):
@@ -21,7 +23,7 @@ def setup_logging(log_level: str):
 
 
 def cmd_run(args):
-    """Starts the continuous background polling daemon."""
+    """Starts the continuous background email poller daemon."""
     config = AppConfig.load_from_yaml(args.config)
     setup_logging(args.log_level or config.log_level)
     service = EmailParserService(config)
@@ -99,6 +101,38 @@ def cmd_inspect_jobs(args):
         print()
 
 
+def cmd_web(args):
+    """Starts the secure web dashboard server."""
+    config = AppConfig.load_from_yaml(args.config)
+    setup_logging(args.log_level or config.log_level)
+    
+    service = EmailParserService(config)
+    app = create_app(config, service)
+
+    print("\n================================================================")
+    print(f"  EMAIL PARSER SECURE WEB DASHBOARD (On-Premises)")
+    print(f"  Listening on: http://{args.host}:{args.port}")
+    print(f"  Default Login: admin / AdminPass123!")
+    print("================================================================\n")
+
+    # Run with waitress or native development server
+    try:
+        from waitress import serve
+        serve(app, host=args.host, port=args.port)
+    except ImportError:
+        app.run(host=args.host, port=args.port, debug=False)
+
+
+def cmd_create_user(args):
+    """Creates a new web user account."""
+    config = AppConfig.load_from_yaml(args.config)
+    state_db = StateDatabase(config.storage.database_path)
+    
+    pw_hash = PasswordManager.hash_password(args.password)
+    user_id = state_db.create_user(username=args.username, password_hash=pw_hash, role=args.role)
+    print(f"\n[+] User '{args.username}' ({args.role.upper()}) created successfully (ID: {user_id}).")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Automatic Email Parser & Downloader (100% On-Premise & Local Processing)"
@@ -136,6 +170,19 @@ def main():
     p_inspect = subparsers.add_parser("inspect-jobs", help="List recent processed jobs")
     p_inspect.add_argument("--limit", "-n", type=int, default=20, help="Number of records to show")
     p_inspect.set_defaults(func=cmd_inspect_jobs)
+
+    # web command
+    p_web = subparsers.add_parser("web", help="Start the secure web dashboard server")
+    p_web.add_argument("--host", default="127.0.0.1", help="Binding interface (default: 127.0.0.1)")
+    p_web.add_argument("--port", "-p", type=int, default=8080, help="Binding port (default: 8080)")
+    p_web.set_defaults(func=cmd_web)
+
+    # create-user command
+    p_user = subparsers.add_parser("create-user", help="Create a web user account")
+    p_user.add_argument("--username", "-u", required=True, help="Username")
+    p_user.add_argument("--password", required=True, help="User password")
+    p_user.add_argument("--role", choices=["admin", "estimator", "viewer"], default="viewer", help="User role")
+    p_user.set_defaults(func=cmd_create_user)
 
     args = parser.parse_args()
     args.func(args)

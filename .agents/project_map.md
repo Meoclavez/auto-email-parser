@@ -1,7 +1,7 @@
-# Project Map: Automatic Email Parser & Downloader
+# Project Map: Automatic Email Parser, Downloader & Secure Web Dashboard
 
 ## 1. Overview
-Secure, self-hosted, 100% on-premises email intake, filtering, job directory provisioning, attachment downloader, and markdown archiver. Built for privacy with zero cloud dependencies.
+Secure, self-hosted, 100% on-premises automatic email monitoring, filtering, job directory provisioning, attachment downloader, Markdown archiver, and secure Web Dashboard. Designed for air-gapped/on-prem environments with zero cloud dependencies.
 
 ## 2. Directory & Component Architecture
 
@@ -24,9 +24,28 @@ auto-email-parser/
 │   │   ├── attachment_manager.py       # AttachmentManager (consistent naming, atomic save, quarantine handler, chmod 0640)
 │   │   └── markdown_writer.py          # EmailMarkdownWriter (HTML to GFM converter, metadata card, warning annotations)
 │   ├── storage/
-│   │   ├── state_db.py                 # StateDatabase (SQLite WAL database for idempotency, retry tracking, atomic job ID counter)
+│   │   ├── state_db.py                 # StateDatabase (SQLite WAL database for idempotency, retry tracking, user auth, sessions)
 │   │   └── job_manager.py              # JobManager (orchestrates folder layout, manifest.json, email_content.md, attachments)
+│   ├── web/
+│   │   ├── app.py                      # Flask Application Factory with security headers & session middleware
+│   │   ├── auth.py                     # Argon2id password hashing, session tokens, login rate limiter, and RBAC
+│   │   ├── routes/
+│   │   │   ├── auth_routes.py          # /api/auth/login, /api/auth/logout, /api/auth/me, /login
+│   │   │   ├── job_routes.py           # /api/jobs, /api/jobs/<job_id>, /api/jobs/<job_id>/markdown, /api/jobs/<job_id>/attachments/<file>
+│   │   │   ├── quarantine_routes.py    # /api/quarantine, /api/quarantine/<file>/download
+│   │   │   ├── config_routes.py        # /api/config, /api/config/filters (Admin only)
+│   │   │   ├── service_routes.py       # /api/service/status, /api/service/sync-now, /api/service/test-imap
+│   │   │   └── events_routes.py        # /api/events/stream (SSE live stream)
+│   │   └── static/
+│   │       ├── css/dashboard.css       # Modern Dark/Glassmorphic self-contained CSS
+│   │       ├── js/api.js               # Authenticated API client
+│   │       ├── js/app.js               # Single Page Dashboard application controller
+│   │       ├── login.html              # Secure Login portal
+│   │       └── index.html              # Main Single Page Application
 │   └── service.py                      # EmailParserService (daemon loop, pre-flight checks, graceful signal handling)
+├── deploy/
+│   ├── nginx.conf                      # Production hardened reverse proxy with TLS, HSTS, and CSP
+│   └── email-parser-web.service        # Systemd unit file for web dashboard
 ├── storage/
 │   ├── jobs/                           # Target directory for generated enquiry folders
 │   ├── quarantine/                     # Isolated folder for quarantined suspicious attachments
@@ -37,70 +56,36 @@ auto-email-parser/
 │   ├── test_filters.py                 # Whitelist/blacklist domain, keyword, and address rule tests
 │   ├── test_markdown_writer.py         # HTML to Markdown and attachment table formatting tests
 │   ├── test_job_manager.py             # Job ID sequencing, folder creation, and manifest tests
-│   └── test_service_pipeline.py        # Complete end-to-end integration pipeline tests
+│   ├── test_service_pipeline.py        # Complete end-to-end integration pipeline tests
+│   ├── test_web_auth.py                # Argon2 password hashing, session tokens, and rate-limiting tests
+│   └── test_web_api.py                 # Web API endpoints, safe attachment download, and security headers tests
 ├── scripts/
 │   └── demo_simulate_intake.py         # Mock simulation test harness
-├── main.py                             # CLI entrypoint (run, process-once, test-connection, stats, inspect-jobs)
+├── main.py                             # CLI entrypoint (run, process-once, test-connection, stats, inspect-jobs, web, create-user)
 ├── requirements.txt                    # Project dependencies
 └── README.md                           # Complete deployment, configuration, and security documentation
 ```
 
-## 3. Key Module APIs & Logic
+## 3. Key Web APIs & Security Layer
 
-### `src.security.sanitizer`
-* `sanitize_filename(raw_name, max_length=150, fallback="attachment") -> str`: Strips path components, null bytes, dangerous shell chars, reserved Windows/DOS names (`CON`, `NUL`, etc.), enforces max length.
-* `sanitize_identifier(name, max_length=50, fallback="client") -> str`: Produces clean alphanumeric slugs for folders.
-* `extract_client_identifier(sender, subject) -> str`: Derives company name from non-public email domains or sender names.
-* `extract_job_reference(subject, patterns) -> Optional[str]`: Extracts RFQ/PO/Job reference numbers from subject lines.
+### `src.web.auth`
+* `PasswordManager.hash_password(password)`: Hashes using Argon2id (`time_cost=3, memory_cost=64MB, parallelism=4`).
+* `PasswordManager.verify_password(password, hash)`: Constant-time password verification.
+* `AuthService.authenticate_user(username, password, ip)`: Rate-limited login verification (blocks IP after 5 failed attempts for 15 minutes).
+* `@login_required`: Protects routes ensuring valid session cookie (`HttpOnly; Secure; SameSite=Strict`).
+* `@admin_required`: Restricts sensitive endpoints (config editing, quarantine management) to admin role.
 
-### `src.security.validator`
-* `AttachmentValidator.validate(filename, data) -> ValidationResult`:
-  * Validates size limits (`max_file_size_mb`).
-  * Checks against forbidden extensions (`.exe`, `.bat`, `.sh`, `.vbs`, etc.).
-  * Verifies file magic signatures (PDF `%PDF-`, PNG, JPEG, CAD DXF/DWG/STEP/IGES, ZIP).
-  * Detects disguised executables (e.g. Windows `MZ` or Linux `ELF` headers disguised with a `.pdf` extension).
-  * Safely inspects ZIP archives for zip bombs (uncompressed ratio, file count) and internal path traversal.
-
-### `src.email_receiver.filters`
-* `EmailFilter.evaluate(email: EmailMessage) -> FilterResult`:
-  * Whitelist and blacklist domain filters.
-  * Required subject keywords (ANY or ALL matching) + custom regex.
-  * Excluded subject keywords (auto-replies, out-of-office).
-  * Dedicated intake address matching (To/Cc).
-  * Attachment presence requirement.
-
-### `src.email_receiver.imap_client`
-* `IMAPReceiver.connect() -> bool`: Connects with SSL/TLS or STARTTLS with exponential retry backoff.
-* `IMAPReceiver.fetch_unread_emails() -> List[EmailMessage]`: Fetches UNSEEN emails in batches.
-* `IMAPReceiver.parse_raw_email(raw_bytes, uid) -> EmailMessage`: RFC 822 / MIME parser with multi-codec charset fallback (`utf-8`, `latin-1`, `windows-1252`, `replace`).
-* `IMAPReceiver.mark_as_read(uid)`: Marks email as `\Seen`.
-
-### `src.storage.state_db`
-* `StateDatabase.get_next_job_id(prefix="JOB", date_obj=None) -> str`: Generates sequential IDs (`JOB-YYYYMMDD-XXXX`).
-* `StateDatabase.is_message_processed(message_id) -> bool`: Idempotency guard.
-* `StateDatabase.record_start()`, `record_success()`, `record_ignored()`, `record_failure()`: Transactional state updates.
-* `StateDatabase.get_stats()`, `get_recent_jobs()`: Monitoring queries.
-
-### `src.storage.job_manager`
-* `JobManager.create_job(email, filter_result) -> Dict`:
-  * Provisions folder: `storage/jobs/{job_id}_{client_slug}/`.
-  * Saves attachments into `attachments/{job_id}_{idx:02d}_{sanitized_name}` with `0640` permissions.
-  * Quarantines rejected attachments into `storage/quarantine/{job_id}_{idx:02d}_{name}.quarantine`.
-  * Generates `email_content.md` and `manifest.json`.
-  * Updates SQLite database.
-
-### `src.file_handler.markdown_writer`
-* `EmailMarkdownWriter.generate_markdown(email, job_id, filter_result, saved_attachments, quarantined_attachments) -> str`: Converts email metadata, security alert boxes, attachment tables, and HTML/plaintext bodies into sanitized GFM.
-* `EmailMarkdownWriter.html_to_markdown(html) -> str`: Converts HTML tags into Markdown while stripping `<script>`, `<style>`, and `<iframe>`.
-
-### `src.service`
-* `EmailParserService.run_daemon()`: Continuous monitoring loop with configurable poll interval and graceful `SIGINT`/`SIGTERM` handling.
-* `EmailParserService.process_once() -> int`: Single batch intake run.
-* `EmailParserService.pre_flight_checks() -> bool`: Disk space, permissions, and database verification.
+### `src.web.routes`
+* `GET /api/jobs`: List and search enquiries with pagination.
+* `GET /api/jobs/<job_id>`: Retrieves job record & `manifest.json`.
+* `GET /api/jobs/<job_id>/markdown`: Retrieves parsed `email_content.md`.
+* `GET /api/jobs/<job_id>/attachments/<filename>`: Safely streams attachments with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`, and path traversal validation.
+* `POST /api/service/sync-now`: Triggers on-demand intake cycle.
+* `GET /api/events/stream`: Live Server-Sent Events (SSE) stream.
 
 ## 4. CLI Usage
-* `python3 main.py run`: Starts the continuous background daemon.
+* `python3 main.py web --port 8080`: Starts the web dashboard server.
+* `python3 main.py create-user -u <user> -p <pass> --role admin`: Provisions user account.
+* `python3 main.py run`: Starts the continuous background IMAP listener.
 * `python3 main.py process-once`: Executes a single polling and processing pass.
-* `python3 main.py test-connection`: Verifies IMAP credentials, latency, and unread counts.
-* `python3 main.py stats`: Displays processing metrics (total, processed, ignored, failed).
-* `python3 main.py inspect-jobs --limit 20`: Lists recent job records.
+* `python3 main.py stats`: Displays processing metrics.
